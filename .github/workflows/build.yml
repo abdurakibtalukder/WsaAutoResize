@@ -1,5 +1,14 @@
 name: Build Vector Module APK
-on: [push, workflow_dispatch]
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,8 +21,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - run: gradle assembleDebug
-      - uses: actions/upload-artifact@v4
+      - name: Build APK
+        run: |
+          gradle assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk WsaAutoResize.apk
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: WsaAutoResize-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: WsaAutoResize.apk
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WsaAutoResize.apk
+          generate_release_notes: true
