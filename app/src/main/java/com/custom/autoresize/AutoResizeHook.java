@@ -1,5 +1,6 @@
 package com.custom.autoresize;
 
+import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.util.DisplayMetrics;
@@ -36,6 +37,7 @@ public class AutoResizeHook implements IXposedHookLoadPackage {
             return;
         }
 
+        // Smart orientation: only unlock when the window is actually wider than tall
         try {
             XposedHelpers.findAndHookMethod(
                 "android.app.Activity",
@@ -45,12 +47,21 @@ public class AutoResizeHook implements IXposedHookLoadPackage {
                 new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        param.args[0] = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+                        try {
+                            Activity activity = (Activity) param.thisObject;
+                            if (activity != null && activity.getResources() != null) {
+                                DisplayMetrics dm = activity.getResources().getDisplayMetrics();
+                                if (dm != null && dm.widthPixels > dm.heightPixels) {
+                                    param.args[0] = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+                                }
+                            }
+                        } catch (Throwable ignored) {}
                     }
                 }
             );
         } catch (Throwable t) { XposedBridge.log(t); }
 
+        // Auto-scale DPI + sync dp dimensions cleanly on first frame
         try {
             XposedHelpers.findAndHookMethod(
                 "android.content.res.ResourcesImpl",
@@ -66,6 +77,18 @@ public class AutoResizeHook implements IXposedHookLoadPackage {
                         DisplayMetrics metrics = (DisplayMetrics) param.args[1];
                         if (config != null && metrics != null && metrics.widthPixels > 0) {
                             int targetDpi = (metrics.widthPixels >= 1000) ? 150 : 180;
+                            if (config.densityDpi > 0 && config.densityDpi != targetDpi) {
+                                float ratio = (float) config.densityDpi / targetDpi;
+                                if (config.screenWidthDp > 0) {
+                                    config.screenWidthDp = Math.round(config.screenWidthDp * ratio);
+                                }
+                                if (config.screenHeightDp > 0) {
+                                    config.screenHeightDp = Math.round(config.screenHeightDp * ratio);
+                                }
+                                if (config.smallestScreenWidthDp > 0) {
+                                    config.smallestScreenWidthDp = Math.round(config.smallestScreenWidthDp * ratio);
+                                }
+                            }
                             config.densityDpi = targetDpi;
                             metrics.densityDpi = targetDpi;
                             metrics.density = targetDpi / 160f;
